@@ -13,7 +13,9 @@ void guPerspective(Mtx *m, u16 *perspNorm, float fovy, float aspect, float near,
                    float far, float scale);
 void guOrtho(Mtx *m, float left, float right, float bottom, float top,
              float near, float far, float scale);
+void guTranslateF(float m[4][4], float x, float y, float z);
 void guTranslate(Mtx *m, float x, float y, float z);
+void guRotateF(float m[4][4], float a, float x, float y, float z);
 void guRotate(Mtx *m, float a, float x, float y, float z);
 void guScale(Mtx *m, float x, float y, float z);
 void guMtxF2L(float mf[4][4], Mtx *m);

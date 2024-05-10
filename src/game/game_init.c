@@ -78,6 +78,8 @@ struct DemoInput *gCurrDemoInput = NULL;
 u16 gDemoInputListID = 0;
 struct DemoInput gRecordedDemoInput = { 0 };
 
+int gIsOculusConnected;
+
 // Display
 // ----------------------------------------------------------------------------------------------------
 
@@ -516,6 +518,57 @@ void run_demo_inputs(void) {
     }
 }
 
+extern float gHeadsetRotation[4][4];
+
+void getHeadsetRotation(int* data, float rotationMtx[4][4]) {
+    float scale;
+
+    guMtxIdentF(rotationMtx);
+    
+    // // up vector
+    rotationMtx[1][0] = data[0];
+    rotationMtx[1][1] = data[1];
+    rotationMtx[1][2] = data[2];
+
+    // forward vector
+    rotationMtx[2][0] = data[3];
+    rotationMtx[2][1] = data[4];
+    rotationMtx[2][2] = data[5];
+
+    // normalize up
+    guNormalize(&rotationMtx[1][0], &rotationMtx[1][1], &rotationMtx[1][2]);
+
+    scale = rotationMtx[2][0] * rotationMtx[1][0] +
+        rotationMtx[2][1] * rotationMtx[1][1] +
+        rotationMtx[2][2] * rotationMtx[1][2];
+
+    // modify forward so it is perpendicular to up
+    rotationMtx[2][0] -= scale * rotationMtx[1][0];
+    rotationMtx[2][1] -= scale * rotationMtx[1][1];
+    rotationMtx[2][2] -= scale * rotationMtx[1][2];
+
+    scale = rotationMtx[2][0] * rotationMtx[2][0] +
+        rotationMtx[2][1] * rotationMtx[2][1] +
+        rotationMtx[2][2] * rotationMtx[2][2];
+
+    if (scale <= 0.00001f && scale >= -0.00001f) {
+        guMtxIdentF(rotationMtx);
+        return;
+    }
+
+    // normalize forward
+    guNormalize(&rotationMtx[2][0], &rotationMtx[2][1], &rotationMtx[2][2]);
+
+    // | x  y  z  |
+    // | ux uy uz |
+    // | fx fy fz |
+
+    // side = up x forward
+    rotationMtx[0][0] = rotationMtx[1][1] * rotationMtx[2][2] - rotationMtx[1][2] * rotationMtx[2][1];
+    rotationMtx[0][1] = rotationMtx[1][2] * rotationMtx[2][0] - rotationMtx[1][0] * rotationMtx[2][2];
+    rotationMtx[0][2] = rotationMtx[1][0] * rotationMtx[2][1] - rotationMtx[1][1] * rotationMtx[2][0];
+}
+
 /**
  * Update the controller struct with available inputs if present.
  */
@@ -525,7 +578,7 @@ void read_controller_inputs(void) {
     // If any controllers are plugged in, update the controller information.
     if (gControllerBits) {
         osRecvMesg(&gSIEventMesgQueue, &gMainReceivedMesg, OS_MESG_BLOCK);
-        osContGetReadData(&gControllerPads[0]);
+        osContGetReadData(&gControllerPads[0], gHeadsetRotation, &gIsOculusConnected);
 #if ENABLE_RUMBLE
         release_rumble_pak_control();
 #endif
@@ -668,6 +721,7 @@ void thread5_game_loop(UNUSED void *arg) {
     play_music(SEQ_PLAYER_SFX, SEQUENCE_ARGS(0, SEQ_SOUND_PLAYER), 0);
     set_sound_mode(save_file_get_sound_mode());
     render_init();
+    // usb_initialize();
 
     while (TRUE) {
         // If the reset timer is active, run the process to reset the game.
@@ -683,7 +737,7 @@ void thread5_game_loop(UNUSED void *arg) {
 #if ENABLE_RUMBLE
             block_until_rumble_pak_free();
 #endif
-            osContStartReadData(&gSIEventMesgQueue);
+            osContStartReadData(&gSIEventMesgQueue, &gIsOculusConnected);
         }
 
         audio_game_loop_tick();

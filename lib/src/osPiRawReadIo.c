@@ -9,3 +9,11 @@ s32 osPiRawReadIo(u32 devAddr, u32 *data) {
     *data = IO_READ(osRomBase | devAddr);
     return 0;
 }
+
+s32 osPiRawWriteIo(u32 devAddr, u32 data)
+{
+    register u32 stat;
+    WAIT_ON_IO_BUSY(stat);
+    IO_WRITE((u32)osRomBase | devAddr, data);
+    return 0;
+}

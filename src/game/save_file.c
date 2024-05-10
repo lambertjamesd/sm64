@@ -409,7 +409,7 @@ void save_file_collect_star_or_key(s16 coinScore, s16 starIndex) {
 }
 
 s32 save_file_exists(s32 fileIndex) {
-    return (gSaveBuffer.files[fileIndex][0].flags & SAVE_FLAG_FILE_EXISTS) != 0;
+    return 1;//(gSaveBuffer.files[fileIndex][0].flags & SAVE_FLAG_FILE_EXISTS) != 0;
 }
 
 /**

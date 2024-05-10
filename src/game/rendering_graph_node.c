@@ -60,6 +60,7 @@ struct GeoAnimState gGeoTempState;
 
 u8 gCurrAnimType;
 u8 gCurrAnimEnabled;
+u8 gCurrentEye;
 s16 gCurrAnimFrame;
 f32 gCurrAnimTranslationMultiplier;
 u16 *gCurrAnimAttribute;
@@ -232,6 +233,88 @@ static void geo_process_ortho_projection(struct GraphNodeOrthoProjection *node) 
     }
 }
 
+
+#define TOP_NEAR_RATIO    1
+
+#define IDP_M               30.0f
+#define IDP_RATIO           0.334935897
+
+#define EYE_HEIGHT_PIXELS   800
+#define EYE_WIDTH_PIXELS    640
+#define IDP_HALF_PIXELS     (IDP_RATIO * EYE_WIDTH_PIXELS)
+
+void geo_calculate_frustum(float mtx[4][4], float left, float right, float bottom, float top, float near, float far, u16* perspNorm) {
+    float xInv = 1.0f / (right - left);
+    float yInv = 1.0f / (top - bottom);
+    float zInv = 1.0f / (near - far);
+    
+    mtx[0][0] = 2.0f * near * xInv;
+    mtx[1][0] = 0.0f;
+    mtx[2][0] = (right + left) * xInv;
+    mtx[3][0] = 0.0f;
+
+    mtx[0][1] = 0.0f;
+    mtx[1][1] = 2.0f * near * yInv;
+    mtx[2][1] = (top + bottom) * yInv;
+    mtx[3][1] = 0.0f;
+
+    mtx[0][2] = 0.0f;
+    mtx[1][2] = 0.0f;
+    mtx[2][2] = (near + far) * zInv;
+    mtx[3][2] = 2.0f * near * far * zInv;
+
+    mtx[0][3] = 0.0f;
+    mtx[1][3] = 0.0f;
+    mtx[2][3] = -1.0f;
+    mtx[3][3] = 0.0f;
+
+    if (perspNorm != NULL) {
+        if (near + far <= 2.0) {
+            *perspNorm = 65535;
+        } else {
+            *perspNorm = (double) (1 << 17) / (near + far);
+            if (*perspNorm <= 0) {
+                *perspNorm = 1;
+            }
+        }
+    }
+}
+
+void geo_calculate_eye_frustum(float nearPlane, float farPlane, int isRight) {
+    float top = nearPlane * TOP_NEAR_RATIO;
+    float bottom = -nearPlane * TOP_NEAR_RATIO;
+
+    float right = nearPlane * (IDP_HALF_PIXELS * (2.0f / EYE_HEIGHT_PIXELS) * TOP_NEAR_RATIO);
+    float left = -nearPlane * ((EYE_WIDTH_PIXELS - IDP_HALF_PIXELS) * (2.0f / EYE_HEIGHT_PIXELS) * TOP_NEAR_RATIO);
+
+    u16 perspNorm;
+
+    float perspective[4][4];
+
+    Mtx *mtx;
+    Mtx *translateMtx;
+
+    if (isRight) {
+        float tmp = right;
+        right = -left;
+        left = -tmp;
+    }
+
+    mtx = alloc_display_list(sizeof(*mtx));
+    translateMtx = alloc_display_list(sizeof(*mtx));
+
+    // this is needed to link libgoddard correctly
+    guPerspective(mtx, &perspNorm, 90.0f, 3.0f / 4.0, nearPlane, farPlane, 1.0f);
+    geo_calculate_frustum(perspective, left, right, bottom, top, nearPlane, farPlane, &perspNorm);
+    guMtxF2L(perspective, mtx);
+
+    gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(mtx), G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
+    gSPPerspNormalize(gDisplayListHead++, perspNorm);
+
+    guTranslate(translateMtx, gCurrentEye ? -IDP_M : IDP_M, 0.0f, 0.0f);
+    gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(translateMtx), G_MTX_PROJECTION | G_MTX_MUL | G_MTX_NOPUSH);
+}
+
 /**
  * Process a perspective projection node.
  */
@@ -240,19 +323,9 @@ static void geo_process_perspective(struct GraphNodePerspective *node) {
         node->fnNode.func(GEO_CONTEXT_RENDER, &node->fnNode.node, gMatStack[gMatStackIndex]);
     }
     if (node->fnNode.node.children != NULL) {
-        u16 perspNorm;
-        Mtx *mtx = alloc_display_list(sizeof(*mtx));
+        geo_calculate_eye_frustum(node->near, node->far, gCurrentEye);
 
-#ifdef VERSION_EU
-        f32 aspect = ((f32) gCurGraphNodeRoot->width / (f32) gCurGraphNodeRoot->height) * 1.1f;
-#else
-        f32 aspect = (f32) gCurGraphNodeRoot->width / (f32) gCurGraphNodeRoot->height;
-#endif
-
-        guPerspective(mtx, &perspNorm, node->fov, aspect, node->near, node->far, 1.0f);
-        gSPPerspNormalize(gDisplayListHead++, perspNorm);
-
-        gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(mtx), G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
+        node->fov = 90.0f;
 
         gCurGraphNodeCamFrustum = node;
         geo_process_node_and_siblings(node->fnNode.node.children);
@@ -304,26 +377,40 @@ static void geo_process_switch(struct GraphNodeSwitchCase *node) {
     }
 }
 
+extern int gDebugNumber;
+int isOculusConnected;
+
+float gHeadsetRotation[4][4] = {
+    {1, 0, 0, 0},
+    {0, 1, 0, 0},
+    {0, 0, 1, 0},
+    {0, 0, 0, 1},
+};
+
 /**
  * Process a camera node.
  */
 static void geo_process_camera(struct GraphNodeCamera *node) {
     Mat4 cameraTransform;
-    Mtx *rollMtx = alloc_display_list(sizeof(*rollMtx));
     Mtx *mtx = alloc_display_list(sizeof(*mtx));
+    float combinedTransform[4][4];
+    Vec3f modifiedFocus;
 
     if (node->fnNode.func != NULL) {
         node->fnNode.func(GEO_CONTEXT_RENDER, &node->fnNode.node, gMatStack[gMatStackIndex]);
     }
-    mtxf_rotate_xy(rollMtx, node->rollScreen);
 
-    gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(rollMtx), G_MTX_PROJECTION | G_MTX_MUL | G_MTX_NOPUSH);
+    modifiedFocus[0] = node->focus[0];
+    modifiedFocus[1] = node->pos[1];
+    modifiedFocus[2] = node->focus[2];
 
-    mtxf_lookat(cameraTransform, node->pos, node->focus, node->roll);
-    mtxf_mul(gMatStack[gMatStackIndex + 1], cameraTransform, gMatStack[gMatStackIndex]);
+    mtxf_lookat(cameraTransform, node->pos, node->focus, 0);
+    mtxf_mul(combinedTransform, cameraTransform, gHeadsetRotation);
+    mtxf_mul(gMatStack[gMatStackIndex + 1], combinedTransform, gMatStack[gMatStackIndex]);
     gMatStackIndex++;
     mtxf_to_mtx(mtx, gMatStack[gMatStackIndex]);
     gMatStackFixed[gMatStackIndex] = mtx;
+
     if (node->fnNode.node.children != 0) {
         gCurGraphNodeCamera = node;
         node->matrixPtr = &gMatStack[gMatStackIndex];
@@ -766,11 +853,9 @@ static s32 obj_is_in_view(struct GraphNodeObject *node, Mat4 matrix) {
     // the amount of units between the center of the screen and the horizontal edge
     // given the distance from the object to the camera.
 
-#ifdef WIDESCREEN
     // This multiplication should really be performed on 4:3 as well,
     // but the issue will be more apparent on widescreen.
-    hScreenEdge *= GFX_DIMENSIONS_ASPECT_RATIO;
-#endif
+    hScreenEdge *= 3.0f / 4.0f;
 
     if (geo != NULL && geo->type == GRAPH_NODE_TYPE_CULLING_RADIUS) {
         cullingRadius =
@@ -1046,39 +1131,56 @@ void geo_process_node_and_siblings(struct GraphNode *firstNode) {
 void geo_process_root(struct GraphNodeRoot *node, Vp *b, Vp *c, s32 clearColor) {
     UNUSED u8 filler[4];
 
+    clear_framebuffer(clearColor);
+
     if (node->node.flags & GRAPH_RENDER_ACTIVE) {
         Mtx *initialMatrix;
-        Vp *viewport = alloc_display_list(sizeof(*viewport));
+        Vp *viewport;
 
-        gDisplayListHeap = alloc_only_pool_init(main_pool_available() - sizeof(struct AllocOnlyPool),
-                                                MEMORY_POOL_LEFT);
-        initialMatrix = alloc_display_list(sizeof(*initialMatrix));
         gMatStackIndex = 0;
         gCurrAnimType = 0;
-        vec3s_set(viewport->vp.vtrans, node->x * 4, node->y * 4, 511);
-        vec3s_set(viewport->vp.vscale, node->width * 4, node->height * 4, 511);
-        if (b != NULL) {
-            clear_framebuffer(clearColor);
-            make_viewport_clip_rect(b);
-            *viewport = *b;
-        }
-
-        else if (c != NULL) {
-            clear_framebuffer(clearColor);
-            make_viewport_clip_rect(c);
-        }
+        initialMatrix = alloc_display_list(sizeof(*initialMatrix));
 
         mtxf_identity(gMatStack[gMatStackIndex]);
         mtxf_to_mtx(initialMatrix, gMatStack[gMatStackIndex]);
-        gMatStackFixed[gMatStackIndex] = initialMatrix;
-        gSPViewport(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(viewport));
-        gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(gMatStackFixed[gMatStackIndex]),
-                  G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
-        gCurGraphNodeRoot = node;
-        if (node->node.children != NULL) {
-            geo_process_node_and_siblings(node->node.children);
+
+        gDisplayListHeap = alloc_only_pool_init(main_pool_available() - sizeof(struct AllocOnlyPool),
+                                                MEMORY_POOL_LEFT);
+
+        for (gCurrentEye = 0; gCurrentEye < 2; ++gCurrentEye) {
+            viewport = alloc_display_list(sizeof(*viewport));
+
+            vec3s_set(viewport->vp.vtrans, node->x * 4 + (gCurrentEye == 0 ? -node->width * 2 : node->width * 2), node->y * 4, 511);
+            vec3s_set(viewport->vp.vscale, node->width * 2, node->height * 4, 511);
+            make_viewport_clip_rect(viewport);
+
+            gMatStackIndex = 0;
+            gMatStackFixed[gMatStackIndex] = initialMatrix;
+            gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(gMatStackFixed[gMatStackIndex]),
+                    G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
+
+            gSPViewport(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(viewport));
+
+            gCurGraphNodeRoot = node;
+            if (node->node.children != NULL) {
+                geo_process_node_and_siblings(node->node.children);
+            }
+            gCurGraphNodeRoot = NULL;
         }
-        gCurGraphNodeRoot = NULL;
+
+        viewport = alloc_display_list(sizeof(*viewport));
+
+        vec3s_set(viewport->vp.vtrans, node->x * 4, node->y * 4, 511);
+        vec3s_set(viewport->vp.vscale, node->width * 4, node->height * 4, 511);
+        make_viewport_clip_rect(viewport);
+
+        gMatStackIndex = 0;
+        gMatStackFixed[gMatStackIndex] = initialMatrix;
+        gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(gMatStackFixed[gMatStackIndex]),
+                G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
+
+        gSPViewport(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(viewport));
+
         if (gShowDebugText) {
             print_text_fmt_int(180, 36, "MEM %d",
                                gDisplayListHeap->totalSpace - gDisplayListHeap->usedSpace);

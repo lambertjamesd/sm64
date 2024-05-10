@@ -190,12 +190,12 @@ typedef struct {
 extern s32		osContInit(OSMesgQueue *, u8 *, OSContStatus *);
 extern s32		osContReset(OSMesgQueue *, OSContStatus *);
 extern s32		osContStartQuery(OSMesgQueue *);
-extern s32		osContStartReadData(OSMesgQueue *);
+extern s32		osContStartReadData(OSMesgQueue *, int *);
 #ifndef _HW_VERSION_1
 extern s32		osContSetCh(u8);
 #endif
 extern void		osContGetQuery(OSContStatus *);
-extern void		osContGetReadData(OSContPad *);
+extern void		osContGetReadData(OSContPad *, float rotationMtx[4][4], int *);
 
 
 #endif  /* defined(_LANGUAGE_C) || defined(_LANGUAGE_C_PLUS_PLUS) */

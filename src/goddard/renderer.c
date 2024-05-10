@@ -2266,7 +2266,7 @@ static void gd_dl_viewport(void) {
     vp->vp.vtrans[2] = 0x1FF;  // z offset
     vp->vp.vtrans[3] = 0x000;
 
-    gSPViewport(next_gfx(), osVirtualToPhysical(vp));
+    // gSPViewport(next_gfx(), osVirtualToPhysical(vp));
     next_vp();
 }
 
@@ -2375,6 +2375,7 @@ void start_view_dl(struct ObjView *view) {
     if (ulx >= lrx) {
         ulx = lrx - 1.0f;
     }
+    
     if (uly >= lry) {
         uly = lry - 1.0f;
     }
@@ -2802,6 +2803,8 @@ s32 setup_view_buffers(const char *name, struct ObjView *view, UNUSED s32 ulx, U
 #endif
 }
 
+extern int gIsOculusConnected;
+
 /* 252AF8 -> 252BAC; orig name: _InitControllers */
 void gd_init_controllers(void) {
     OSContPad *p1cont = &sPrevFrameCont[0]; // 1c
@@ -2810,7 +2813,7 @@ void gd_init_controllers(void) {
     osCreateMesgQueue(&D_801BE830, D_801BE848, ARRAY_COUNT(D_801BE848));
     osSetEventMesg(OS_EVENT_SI, &D_801BE830, (OSMesg) OS_MESG_SI_COMPLETE);
     osContInit(&D_801BE830, &D_801BAEA0, D_801BAE60);
-    osContStartReadData(&D_801BE830);
+    osContStartReadData(&D_801BE830, &gIsOculusConnected);
 
     for (i = 0; i < sizeof(OSContPad); i++) {
         ((u8 *) p1cont)[i] = 0;

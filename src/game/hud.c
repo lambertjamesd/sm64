@@ -404,6 +404,8 @@ void render_hud_camera_status(void) {
     gSPDisplayList(gDisplayListHead++, dl_hud_img_end);
 }
 
+int gDebugNumber;
+
 /**
  * Render HUD strings using hudDisplayFlags with it's render functions,
  * excluding the cannon reticle which detects a camera preset for it.
@@ -461,5 +463,7 @@ void render_hud(void) {
         if (hudDisplayFlags & HUD_DISPLAY_FLAG_TIMER) {
             render_hud_timer();
         }
+
+        print_text_fmt_int(20, 20, "%d", gDebugNumber); // 'Star' glyph
     }
 }
