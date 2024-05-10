@@ -2803,8 +2803,6 @@ s32 setup_view_buffers(const char *name, struct ObjView *view, UNUSED s32 ulx, U
 #endif
 }
 
-extern int gIsOculusConnected;
-
 /* 252AF8 -> 252BAC; orig name: _InitControllers */
 void gd_init_controllers(void) {
     OSContPad *p1cont = &sPrevFrameCont[0]; // 1c
@@ -2813,7 +2811,7 @@ void gd_init_controllers(void) {
     osCreateMesgQueue(&D_801BE830, D_801BE848, ARRAY_COUNT(D_801BE848));
     osSetEventMesg(OS_EVENT_SI, &D_801BE830, (OSMesg) OS_MESG_SI_COMPLETE);
     osContInit(&D_801BE830, &D_801BAEA0, D_801BAE60);
-    osContStartReadData(&D_801BE830, &gIsOculusConnected);
+    osContStartReadData(&D_801BE830, 0);
 
     for (i = 0; i < sizeof(OSContPad); i++) {
         ((u8 *) p1cont)[i] = 0;

@@ -78,6 +78,7 @@ struct DemoInput *gCurrDemoInput = NULL;
 u16 gDemoInputListID = 0;
 struct DemoInput gRecordedDemoInput = { 0 };
 
+extern int gDebugNumber;
 int gIsOculusConnected;
 
 // Display
@@ -737,7 +738,7 @@ void thread5_game_loop(UNUSED void *arg) {
 #if ENABLE_RUMBLE
             block_until_rumble_pak_free();
 #endif
-            osContStartReadData(&gSIEventMesgQueue, &gIsOculusConnected);
+            osContStartReadData(&gSIEventMesgQueue, gIsOculusConnected);
         }
 
         audio_game_loop_tick();

@@ -17,6 +17,7 @@ u32 _osContInitialized = 0; // probably initialized
 
 // these probably belong in EEPROMlongread or something
 u8 __osContLastCmd;
+u8 __osContLastOculus;
 u8 __osMaxControllers;
 OSTimer __osEepromTimer;
 OSMesgQueue __osEepromTimerQ;

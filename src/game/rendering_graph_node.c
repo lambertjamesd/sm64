@@ -378,7 +378,6 @@ static void geo_process_switch(struct GraphNodeSwitchCase *node) {
 }
 
 extern int gDebugNumber;
-int isOculusConnected;
 
 float gHeadsetRotation[4][4] = {
     {1, 0, 0, 0},

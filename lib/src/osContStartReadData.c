@@ -7,13 +7,14 @@
 ALIGNED8 OSPifRam __osContPifRam;
 
 extern u8 __osContLastCmd;
+extern u8 __osContLastOculus;
 extern u8 __osMaxControllers;
 
 extern int gDebugNumber;
 
-void __osPackReadData(int* isOculusConnected);
+void __osPackReadData(int isOculusConnected);
 
-s32 osContStartReadData(OSMesgQueue *mesg, int* isOculusConnected) {
+s32 osContStartReadData(OSMesgQueue *mesg, int isOculusConnected) {
 #ifdef VERSION_CN
     s32 ret;
 #else
@@ -21,7 +22,7 @@ s32 osContStartReadData(OSMesgQueue *mesg, int* isOculusConnected) {
     s32 i;
 #endif
     __osSiGetAccess();
-    if (__osContLastCmd != CONT_CMD_READ_BUTTON) {
+    if (__osContLastCmd != CONT_CMD_READ_BUTTON || __osContLastOculus != isOculusConnected) {
         __osPackReadData(isOculusConnected);
         ret = __osSiRawStartDma(OS_WRITE, __osContPifRam.ramarray);
         osRecvMesg(mesg, NULL, OS_MESG_BLOCK);
@@ -39,6 +40,7 @@ s32 osContStartReadData(OSMesgQueue *mesg, int* isOculusConnected) {
 #else
     __osContLastCmd = CONT_CMD_READ_BUTTON;
 #endif
+    __osContLastOculus = isOculusConnected;
     __osSiRelAccess();
     return ret;
 }
@@ -122,12 +124,11 @@ void osContGetReadData(OSContPad *pad, float rotationMtx[4][4], int* isOculusCon
         __osContReadOrientation((int*)(cmdBufPtr + 4), rotationMtx);
     } else {
         guMtxIdentF(rotationMtx);
-        // *isOculusConnected = cmdBufPtr[4] != 0x06;
-        *isOculusConnected += 1;
+        *isOculusConnected = cmdBufPtr[4] == 0x06;
     }
 }
 
-void __osPackReadData(int* isOculusConnected) {
+void __osPackReadData(int isOculusConnected) {
     u8 *cmdBufPtr;
     OSContPackedRead request;
     s32 i;
@@ -151,10 +152,8 @@ void __osPackReadData(int* isOculusConnected) {
     request.rawStickY = -1;
     * (OSContPackedRead *) cmdBufPtr = request;
     cmdBufPtr += sizeof(OSContPackedRead);
-
-    gDebugNumber = *isOculusConnected;
     
-    if (*isOculusConnected) {
+    if (isOculusConnected) {
         *cmdBufPtr++ = 0xFF; // padding
         *cmdBufPtr++ = 0x01; // tx bytes
         *cmdBufPtr++ = 0x18; // rx bytes
