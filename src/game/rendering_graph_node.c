@@ -10,6 +10,7 @@
 #include "rendering_graph_node.h"
 #include "shadow.h"
 #include "sm64.h"
+#include "headset.h"
 
 /**
  * This file contains the code that processes the scene graph for rendering.
@@ -280,19 +281,18 @@ void geo_calculate_frustum(float mtx[4][4], float left, float right, float botto
     }
 }
 
-void geo_calculate_eye_frustum(float nearPlane, float farPlane, int isRight) {
+extern void matrixMul(float a[4][4], float b[4][4], float output[4][4]);
+
+void geo_calculate_eye_frustum(Mtx* mtx, u16* perspNorm, float nearPlane, float farPlane, int isRight) {
     float top = nearPlane * TOP_NEAR_RATIO;
     float bottom = -nearPlane * TOP_NEAR_RATIO;
 
     float right = nearPlane * (IDP_HALF_PIXELS * (2.0f / EYE_HEIGHT_PIXELS) * TOP_NEAR_RATIO);
     float left = -nearPlane * ((EYE_WIDTH_PIXELS - IDP_HALF_PIXELS) * (2.0f / EYE_HEIGHT_PIXELS) * TOP_NEAR_RATIO);
 
-    u16 perspNorm;
-
     float perspective[4][4];
-
-    Mtx *mtx;
-    Mtx *translateMtx;
+    float translate[4][4];
+    float combined[4][4];
 
     if (isRight) {
         float tmp = right;
@@ -300,19 +300,13 @@ void geo_calculate_eye_frustum(float nearPlane, float farPlane, int isRight) {
         left = -tmp;
     }
 
-    mtx = alloc_display_list(sizeof(*mtx));
-    translateMtx = alloc_display_list(sizeof(*mtx));
-
     // this is needed to link libgoddard correctly
-    guPerspective(mtx, &perspNorm, 90.0f, 3.0f / 4.0, nearPlane, farPlane, 1.0f);
-    geo_calculate_frustum(perspective, left, right, bottom, top, nearPlane, farPlane, &perspNorm);
-    guMtxF2L(perspective, mtx);
+    geo_calculate_frustum(perspective, left, right, bottom, top, nearPlane, farPlane, perspNorm);
+    guTranslateF(translate, gCurrentEye ? -IDP_M : IDP_M, 0.0f, 0.0f);
 
-    gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(mtx), G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
-    gSPPerspNormalize(gDisplayListHead++, perspNorm);
+    matrixMul(perspective, translate, combined);
 
-    guTranslate(translateMtx, gCurrentEye ? -IDP_M : IDP_M, 0.0f, 0.0f);
-    gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(translateMtx), G_MTX_PROJECTION | G_MTX_MUL | G_MTX_NOPUSH);
+    guMtxF2L(combined, mtx);
 }
 
 /**
@@ -323,7 +317,15 @@ static void geo_process_perspective(struct GraphNodePerspective *node) {
         node->fnNode.func(GEO_CONTEXT_RENDER, &node->fnNode.node, gMatStack[gMatStackIndex]);
     }
     if (node->fnNode.node.children != NULL) {
-        geo_calculate_eye_frustum(node->near, node->far, gCurrentEye);
+        Mtx* mtx;
+        u16 perspNorm;
+
+        mtx = alloc_display_list(sizeof(*mtx));
+
+        geo_calculate_eye_frustum(mtx, &perspNorm, node->near, node->far, gCurrentEye);
+
+        gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(mtx), G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
+        gSPPerspNormalize(gDisplayListHead++, perspNorm);
 
         node->fov = 90.0f;
 
@@ -379,18 +381,12 @@ static void geo_process_switch(struct GraphNodeSwitchCase *node) {
 
 extern int gDebugNumber;
 
-float gHeadsetRotation[4][4] = {
-    {1, 0, 0, 0},
-    {0, 1, 0, 0},
-    {0, 0, 1, 0},
-    {0, 0, 0, 1},
-};
-
 /**
  * Process a camera node.
  */
 static void geo_process_camera(struct GraphNodeCamera *node) {
     Mat4 cameraTransform;
+    Mat4 headRotation;
     Mtx *mtx = alloc_display_list(sizeof(*mtx));
     float combinedTransform[4][4];
     Vec3f modifiedFocus;
@@ -403,8 +399,10 @@ static void geo_process_camera(struct GraphNodeCamera *node) {
     modifiedFocus[1] = node->pos[1];
     modifiedFocus[2] = node->focus[2];
 
-    mtxf_lookat(cameraTransform, node->pos, node->focus, 0);
-    mtxf_mul(combinedTransform, cameraTransform, gHeadsetRotation);
+    headset_read_orientation(headRotation);
+
+    mtxf_lookat(cameraTransform, node->pos, &modifiedFocus, 0);
+    mtxf_mul(combinedTransform, cameraTransform, headRotation);
     mtxf_mul(gMatStack[gMatStackIndex + 1], combinedTransform, gMatStack[gMatStackIndex]);
     gMatStackIndex++;
     mtxf_to_mtx(mtx, gMatStack[gMatStackIndex]);
