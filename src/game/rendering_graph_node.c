@@ -67,6 +67,8 @@ f32 gCurrAnimTranslationMultiplier;
 u16 *gCurrAnimAttribute;
 s16 *gCurrAnimData;
 
+extern int gDebugNumber;
+
 struct AllocOnlyPool *gDisplayListHeap;
 
 struct RenderModeContainer {
@@ -319,6 +321,7 @@ static void geo_process_perspective(struct GraphNodePerspective *node) {
     if (node->fnNode.node.children != NULL) {
         Mtx* mtx;
         u16 perspNorm;
+        Gfx* start;
 
         mtx = alloc_display_list(sizeof(*mtx));
 
@@ -379,8 +382,6 @@ static void geo_process_switch(struct GraphNodeSwitchCase *node) {
     }
 }
 
-extern int gDebugNumber;
-
 /**
  * Process a camera node.
  */
@@ -401,7 +402,7 @@ static void geo_process_camera(struct GraphNodeCamera *node) {
 
     headset_read_orientation(headRotation);
 
-    mtxf_lookat(cameraTransform, node->pos, &modifiedFocus, 0);
+    mtxf_lookat(cameraTransform, node->pos, modifiedFocus, 0);
     mtxf_mul(combinedTransform, cameraTransform, headRotation);
     mtxf_mul(gMatStack[gMatStackIndex + 1], combinedTransform, gMatStack[gMatStackIndex]);
     gMatStackIndex++;
@@ -1127,6 +1128,7 @@ void geo_process_node_and_siblings(struct GraphNode *firstNode) {
  */
 void geo_process_root(struct GraphNodeRoot *node, Vp *b, Vp *c, s32 clearColor) {
     UNUSED u8 filler[4];
+    Gfx* perspectiveDL = NULL;
 
     clear_framebuffer(clearColor);
 
@@ -1158,11 +1160,25 @@ void geo_process_root(struct GraphNodeRoot *node, Vp *b, Vp *c, s32 clearColor) 
 
             gSPViewport(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(viewport));
 
-            gCurGraphNodeRoot = node;
-            if (node->node.children != NULL) {
-                geo_process_node_and_siblings(node->node.children);
+            if (perspectiveDL) {
+                gSPDisplayList(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(perspectiveDL));
+            } else {
+                Gfx* jump = gDisplayListHead;
+
+                gDisplayListHead++;
+                perspectiveDL = gDisplayListHead;
+                
+                gCurGraphNodeRoot = node;
+                if (node->node.children != NULL) {
+                    geo_process_node_and_siblings(node->node.children);
+                }
+                gCurGraphNodeRoot = NULL;
+
+                gSPEndDisplayList(gDisplayListHead++);
+
+                gSPBranchList(jump++, VIRTUAL_TO_PHYSICAL(gDisplayListHead));
+                gSPDisplayList(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(perspectiveDL));
             }
-            gCurGraphNodeRoot = NULL;
         }
 
         viewport = alloc_display_list(sizeof(*viewport));
