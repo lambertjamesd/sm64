@@ -849,14 +849,14 @@ static s32 obj_is_in_view(struct GraphNodeObject *node, Mat4 matrix) {
     // visibly pop in or out at the edge of the screen.
     halfFov = (gCurGraphNodeCamFrustum->fov / 2.0f + 1.0f) * 32768.0f / 180.0f + 0.5f;
 
-    hScreenEdge = -matrix[3][2] * sins(halfFov) / coss(halfFov);
+    hScreenEdge = -matrix[3][2] * HEIGHT_CLIP_RATIO * sins(halfFov) / coss(halfFov);
     // -matrix[3][2] is the depth, which gets multiplied by tan(halfFov) to get
     // the amount of units between the center of the screen and the horizontal edge
     // given the distance from the object to the camera.
 
     // This multiplication should really be performed on 4:3 as well,
     // but the issue will be more apparent on widescreen.
-    hScreenEdge *= 3.0f / 4.0f;
+    hScreenEdge *= (3.0f / 4.0f) * (LEFT_CLIP_RATIO / HEIGHT_CLIP_RATIO);
 
     if (geo != NULL && geo->type == GRAPH_NODE_TYPE_CULLING_RADIUS) {
         cullingRadius =
