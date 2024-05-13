@@ -242,14 +242,20 @@ static void geo_process_ortho_projection(struct GraphNodeOrthoProjection *node) 
 #define IDP_M               30.0f
 #define IDP_RATIO           0.334935897
 
+#define HEIGHT_CLIP_RATIO   0.6f
+#define LEFT_CLIP_RATIO     0.8f
+#define RIGHT_CLIP_RATIO    0.9f
+
 #define EYE_HEIGHT_PIXELS   800
 #define EYE_WIDTH_PIXELS    640
 #define IDP_HALF_PIXELS     (IDP_RATIO * EYE_WIDTH_PIXELS)
 
 void geo_calculate_frustum(float mtx[4][4], float left, float right, float bottom, float top, float near, float far) {
-    float xInv = 1.0f / (right - left);
-    float yInv = 1.0f / (top - bottom);
-    float zInv = 1.0f / (near - far);
+    float xInv, yInv, zInv;
+
+    xInv = 1.0f / (right - left);
+    yInv = 1.0f / (top - bottom);
+    zInv = 1.0f / (near - far);
     
     mtx[0][0] = 2.0f * near * xInv;
     mtx[1][0] = 0.0f;
@@ -284,6 +290,12 @@ void geo_calculate_eye_frustum(Mtx* mtx, float nearPlane, float farPlane, int is
     float perspective[4][4];
     float translate[4][4];
     float combined[4][4];
+
+    bottom *= HEIGHT_CLIP_RATIO;
+    top *= HEIGHT_CLIP_RATIO;
+
+    left *= LEFT_CLIP_RATIO;
+    right *= RIGHT_CLIP_RATIO;
 
     if (isRight) {
         float tmp = right;
@@ -1139,10 +1151,24 @@ void geo_process_root(struct GraphNodeRoot *node, Vp *b, Vp *c, s32 clearColor) 
                                                 MEMORY_POOL_LEFT);
 
         for (gCurrentEye = 0; gCurrentEye < 2; ++gCurrentEye) {
+            float leftVp = 0.0f;
+            float rightVp = 1.0f;
+
+            if (gCurrentEye) {
+                leftVp += 1.0f;
+                rightVp += 1.0f;
+
+                leftVp += IDP_RATIO * (1.0f - RIGHT_CLIP_RATIO);;
+                rightVp -= (1.0f - IDP_RATIO) * (1.0f - LEFT_CLIP_RATIO);
+            } else {
+                leftVp += (1.0f - IDP_RATIO) * (1.0f - LEFT_CLIP_RATIO);
+                rightVp -= IDP_RATIO * (1.0f - RIGHT_CLIP_RATIO);
+            }
+
             viewport = alloc_display_list(sizeof(*viewport));
 
-            vec3s_set(viewport->vp.vtrans, node->x * 4 + (gCurrentEye == 0 ? -node->width * 2 : node->width * 2), node->y * 4, 511);
-            vec3s_set(viewport->vp.vscale, node->width * 2, node->height * 4, 511);
+            vec3s_set(viewport->vp.vtrans, node->width * 2 * (leftVp + rightVp), node->y * 4, 511);
+            vec3s_set(viewport->vp.vscale, (u16)((rightVp - leftVp) * node->width * 2.0f), (s16)(node->height * 4 * HEIGHT_CLIP_RATIO), 511);
             make_viewport_clip_rect(viewport);
 
             gMatStackIndex = 0;
@@ -1181,7 +1207,7 @@ void geo_process_root(struct GraphNodeRoot *node, Vp *b, Vp *c, s32 clearColor) 
                 geo_calculate_eye_frustum(perspectiveMtx, 10.0f, 100.0f, gCurrentEye);
             }
         }
-        
+
         gCurGraphNodeCamFrustum = NULL;
 
         viewport = alloc_display_list(sizeof(*viewport));
