@@ -2711,7 +2711,7 @@ void gd_create_ortho_matrix(f32 l, f32 r, f32 b, f32 t, f32 n, f32 f) {
     next_mtx();
 }
 
-extern void geo_calculate_eye_frustum(Mtx* mtx, u16* perspNorm, float nearPlane, float farPlane, int isRight);
+extern void geo_calculate_eye_frustum(Mtx* mtx, float nearPlane, float farPlane, int isRight);
 u8 gGoddardCurrentEye;
 
 /* 25245C -> 25262C */
@@ -2724,7 +2724,16 @@ void gd_create_perspective_matrix(f32 fovy, f32 aspect, f32 near, f32 far) {
     UNUSED f32 unused = 0.0625f;
 
     sGdPerspTimer += 0.1;
-    geo_calculate_eye_frustum(&DL_CURRENT_MTX(sCurrentGdDl), &perspNorm, near, far, gGoddardCurrentEye);
+    geo_calculate_eye_frustum(&DL_CURRENT_MTX(sCurrentGdDl), near, far, gGoddardCurrentEye);
+
+    if (near + far <= 2.0) {
+        perspNorm = 65535;
+    } else {
+        perspNorm = (double) (1 << 17) / (near + far);
+        if (perspNorm <= 0) {
+            perspNorm = 1;
+        }
+    }
 
     gGoddardCurrentEye ^= 1;
 

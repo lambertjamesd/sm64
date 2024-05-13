@@ -246,7 +246,7 @@ static void geo_process_ortho_projection(struct GraphNodeOrthoProjection *node) 
 #define EYE_WIDTH_PIXELS    640
 #define IDP_HALF_PIXELS     (IDP_RATIO * EYE_WIDTH_PIXELS)
 
-void geo_calculate_frustum(float mtx[4][4], float left, float right, float bottom, float top, float near, float far, u16* perspNorm) {
+void geo_calculate_frustum(float mtx[4][4], float left, float right, float bottom, float top, float near, float far) {
     float xInv = 1.0f / (right - left);
     float yInv = 1.0f / (top - bottom);
     float zInv = 1.0f / (near - far);
@@ -270,22 +270,11 @@ void geo_calculate_frustum(float mtx[4][4], float left, float right, float botto
     mtx[1][3] = 0.0f;
     mtx[2][3] = -1.0f;
     mtx[3][3] = 0.0f;
-
-    if (perspNorm != NULL) {
-        if (near + far <= 2.0) {
-            *perspNorm = 65535;
-        } else {
-            *perspNorm = (double) (1 << 17) / (near + far);
-            if (*perspNorm <= 0) {
-                *perspNorm = 1;
-            }
-        }
-    }
 }
 
 extern void matrixMul(float a[4][4], float b[4][4], float output[4][4]);
 
-void geo_calculate_eye_frustum(Mtx* mtx, u16* perspNorm, float nearPlane, float farPlane, int isRight) {
+void geo_calculate_eye_frustum(Mtx* mtx, float nearPlane, float farPlane, int isRight) {
     float top = nearPlane * TOP_NEAR_RATIO;
     float bottom = -nearPlane * TOP_NEAR_RATIO;
 
@@ -303,7 +292,7 @@ void geo_calculate_eye_frustum(Mtx* mtx, u16* perspNorm, float nearPlane, float 
     }
 
     // this is needed to link libgoddard correctly
-    geo_calculate_frustum(perspective, left, right, bottom, top, nearPlane, farPlane, perspNorm);
+    geo_calculate_frustum(perspective, left, right, bottom, top, nearPlane, farPlane);
     guTranslateF(translate, gCurrentEye ? -IDP_M : IDP_M, 0.0f, 0.0f);
 
     matrixMul(perspective, translate, combined);
@@ -319,22 +308,24 @@ static void geo_process_perspective(struct GraphNodePerspective *node) {
         node->fnNode.func(GEO_CONTEXT_RENDER, &node->fnNode.node, gMatStack[gMatStackIndex]);
     }
     if (node->fnNode.node.children != NULL) {
-        Mtx* mtx;
         u16 perspNorm;
-        Gfx* start;
 
-        mtx = alloc_display_list(sizeof(*mtx));
+        gSPMatrix(gDisplayListHead++, 0x0F000000, G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
 
-        geo_calculate_eye_frustum(mtx, &perspNorm, node->near, node->far, gCurrentEye);
-
-        gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(mtx), G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
+        if (node->near + node->far <= 2.0) {
+            perspNorm = 65535;
+        } else {
+            perspNorm = (double) (1 << 17) / (node->near + node->far);
+            if (perspNorm <= 0) {
+                perspNorm = 1;
+            }
+        }
         gSPPerspNormalize(gDisplayListHead++, perspNorm);
 
         node->fov = 90.0f;
 
         gCurGraphNodeCamFrustum = node;
         geo_process_node_and_siblings(node->fnNode.node.children);
-        gCurGraphNodeCamFrustum = NULL;
     }
 }
 
@@ -1129,6 +1120,7 @@ void geo_process_node_and_siblings(struct GraphNode *firstNode) {
 void geo_process_root(struct GraphNodeRoot *node, Vp *b, Vp *c, s32 clearColor) {
     UNUSED u8 filler[4];
     Gfx* perspectiveDL = NULL;
+    Mtx* perspectiveMtx = NULL;
 
     clear_framebuffer(clearColor);
 
@@ -1160,6 +1152,9 @@ void geo_process_root(struct GraphNodeRoot *node, Vp *b, Vp *c, s32 clearColor) 
 
             gSPViewport(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(viewport));
 
+            perspectiveMtx = alloc_display_list(sizeof(*perspectiveMtx));
+            gSPSegment(gDisplayListHead++, 15, VIRTUAL_TO_PHYSICAL(perspectiveMtx));
+
             if (perspectiveDL) {
                 gSPDisplayList(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(perspectiveDL));
             } else {
@@ -1179,7 +1174,15 @@ void geo_process_root(struct GraphNodeRoot *node, Vp *b, Vp *c, s32 clearColor) 
                 gSPBranchList(jump++, VIRTUAL_TO_PHYSICAL(gDisplayListHead));
                 gSPDisplayList(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(perspectiveDL));
             }
+
+            if (gCurGraphNodeCamFrustum) {
+                geo_calculate_eye_frustum(perspectiveMtx, gCurGraphNodeCamFrustum->near, gCurGraphNodeCamFrustum->far, gCurrentEye);
+            } else {
+                geo_calculate_eye_frustum(perspectiveMtx, 10.0f, 100.0f, gCurrentEye);
+            }
         }
+        
+        gCurGraphNodeCamFrustum = NULL;
 
         viewport = alloc_display_list(sizeof(*viewport));
 
