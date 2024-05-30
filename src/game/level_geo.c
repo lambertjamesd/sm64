@@ -55,6 +55,8 @@ Gfx *geo_envfx_main(s32 callContext, struct GraphNode *node, Mat4 mtxf) {
     return gfx;
 }
 
+extern int gIsOculusConnected;
+
 /**
  * Geo function that generates a displaylist for the skybox. Can be assigned
  * as the function of a GraphNodeBackground.
@@ -72,7 +74,7 @@ Gfx *geo_skybox_main(s32 callContext, struct GraphNode *node, UNUSED Mat4 *mtx) 
 
         gfx = create_skybox_facing_camera(0, backgroundNode->background, camFrustum->fov, 
             gLakituState.pos[0], gLakituState.pos[1], gLakituState.pos[2], 
-            gLakituState.focus[0], gLakituState.pos[1], gLakituState.focus[2]);
+            gLakituState.focus[0], gIsOculusConnected ? gLakituState.pos[1] : gLakituState.focus[1], gLakituState.focus[2]);
     }
 
     return gfx;

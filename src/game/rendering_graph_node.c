@@ -385,6 +385,9 @@ static void geo_process_switch(struct GraphNodeSwitchCase *node) {
     }
 }
 
+
+extern int gIsOculusConnected;
+
 /**
  * Process a camera node.
  */
@@ -400,7 +403,7 @@ static void geo_process_camera(struct GraphNodeCamera *node) {
     }
 
     modifiedFocus[0] = node->focus[0];
-    modifiedFocus[1] = node->pos[1];
+    modifiedFocus[1] = gIsOculusConnected ? node->pos[1] : node->focus[1];
     modifiedFocus[2] = node->focus[2];
 
     headset_read_orientation(headRotation);
