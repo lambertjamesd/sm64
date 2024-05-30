@@ -464,6 +464,6 @@ void render_hud(void) {
             render_hud_timer();
         }
 
-        print_text_fmt_int(20, 20, "%d", gDebugNumber); // 'Star' glyph
+        // print_text_fmt_int(20, 20, "%d", gDebugNumber); // 'Star' glyph
     }
 }
